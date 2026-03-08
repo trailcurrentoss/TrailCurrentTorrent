@@ -40,7 +40,7 @@
 			)
 		)
 		(instances
-			(project "trailer-power-control-system"
+			(project "trailcurrent-torrent"
 				(path "/9406dd09-7ae4-432a-9b34-98425b815f21"
 					(page "6")
 				)
@@ -82,7 +82,7 @@
 			)
 		)
 		(instances
-			(project "trailer-power-control-system"
+			(project "trailcurrent-torrent"
 				(path "/9406dd09-7ae4-432a-9b34-98425b815f21"
 					(page "5")
 				)
@@ -124,7 +124,7 @@
 			)
 		)
 		(instances
-			(project "trailer-power-control-system"
+			(project "trailcurrent-torrent"
 				(path "/9406dd09-7ae4-432a-9b34-98425b815f21"
 					(page "2")
 				)
@@ -166,7 +166,7 @@
 			)
 		)
 		(instances
-			(project "trailer-power-control-system"
+			(project "trailcurrent-torrent"
 				(path "/9406dd09-7ae4-432a-9b34-98425b815f21"
 					(page "3")
 				)
@@ -208,7 +208,7 @@
 			)
 		)
 		(instances
-			(project "trailer-power-control-system"
+			(project "trailcurrent-torrent"
 				(path "/9406dd09-7ae4-432a-9b34-98425b815f21"
 					(page "4")
 				)

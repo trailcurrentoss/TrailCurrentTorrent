@@ -1,4 +1,4 @@
-# TrailCurrent Power Distribution Module
+# TrailCurrent Torrent
 
 CAN-controlled 8-channel PWM power distribution module for vehicle lighting and accessory control with OTA firmware update capability. Part of the [TrailCurrent](https://trailcurrent.com) open-source vehicle platform.
 
@@ -62,7 +62,7 @@ See [KICAD_ENVIRONMENT_SETUP.md](https://github.com/trailcurrentoss/TrailCurrent
 1. **Set up environment variables** (see Library Dependencies above)
 2. **Open KiCAD:**
    ```bash
-   kicad EDA/trailer-power-control-system.kicad_pro
+   kicad EDA/trailcurrent-torrent.kicad_pro
    ```
 3. **Verify libraries load** - All symbol and footprint libraries should resolve without errors
 4. **View 3D models** - Open PCB and press `Alt+3` to view the 3D visualization
@@ -150,14 +150,17 @@ When enabled, debug macros (`debugln()`, `debugf()`, `debug_tag()`, etc.) output
 
 ```
 ├── EDA/                          # KiCAD hardware design files
-│   ├── trailer-power-control-system.kicad_pro
-│   ├── trailer-power-control-system.kicad_sch  # Root schematic
+│   ├── trailcurrent-torrent.kicad_pro
+│   ├── trailcurrent-torrent.kicad_sch  # Root schematic
 │   ├── can.kicad_sch             # CAN subsystem
 │   ├── mcu.kicad_sch             # MCU subsystem
 │   ├── power.kicad_sch           # Power subsystem
 │   ├── mosfets.kicad_sch         # 8-channel MOSFET drivers
 │   ├── dip_switch.kicad_sch      # Configuration switches
-│   └── trailer-power-control-system.kicad_pcb  # PCB layout
+│   └── trailcurrent-torrent.kicad_pcb  # PCB layout
+├── CAD/                          # FreeCAD case design and 3D models
+│   ├── trailcurrent-torrent-case.FCStd
+│   └── TrailCurrentTorrent.3mf
 ├── src/                          # Firmware source
 │   ├── main.cpp                  # Main application
 │   ├── globals.h                 # Pin definitions
