@@ -1,5 +1,9 @@
 # TrailCurrent Torrent
 
+<p align="center">
+  <img src="DOCS/images/torrent_main.png" alt="TrailCurrent Torrent" width="600">
+</p>
+
 CAN-controlled 8-channel PWM power distribution module for vehicle lighting and accessory control with OTA firmware update capability. Part of the [TrailCurrent](https://trailcurrent.com) open-source vehicle platform.
 
 ## Hardware Overview
