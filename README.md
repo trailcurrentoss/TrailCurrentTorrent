@@ -4,7 +4,7 @@
   <img src="DOCS/images/torrent_main.png" alt="TrailCurrent Torrent" width="600">
 </p>
 
-CAN-controlled 8-channel PWM power distribution module for vehicle lighting and accessory control with OTA firmware update capability. Part of the [TrailCurrent](https://trailcurrent.com) open-source vehicle platform.
+CAN-controlled 8-channel PWM power distribution module for vehicle lighting and accessory control with OTA firmware update capability and mDNS self-discovery. Part of the [TrailCurrent](https://trailcurrent.com) open-source vehicle platform.
 
 ## Hardware Overview
 
@@ -16,6 +16,7 @@ CAN-controlled 8-channel PWM power distribution module for vehicle lighting and 
   - Individual and master on/off/brightness control
   - Animated light sequences (startup, interior, exterior)
   - Over-the-air (OTA) firmware updates via WiFi
+  - mDNS self-discovery for automatic registration with Headwaters
   - WiFi credentials provisioned dynamically over CAN bus
   - Hierarchical PCB schematic design (5 sheets)
 
@@ -83,48 +84,66 @@ The design uses a hierarchical schematic with dedicated sheets:
 
 ## Firmware
 
-See `src/` directory for PlatformIO-based firmware.
+Built with [ESP-IDF](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/) (Espressif IoT Development Framework) targeting the ESP32.
 
-**Setup:**
+### Prerequisites
+
+Install ESP-IDF v5.x following the [official guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/).
+
+### Build and Flash
+
 ```bash
-# Install PlatformIO (if not already installed)
-pip install platformio
+# Set up ESP-IDF environment
+source ~/esp/v5.5.2/esp-idf/export.sh
+
+# First time: set chip target
+idf.py set-target esp32
 
 # Build firmware
-pio run
+idf.py build
 
-# Upload to board (serial)
-pio run -t upload
-
-# Upload via OTA (after initial flash)
-pio run -t upload --upload-port esp32-DEVICE_ID
+# Flash and monitor (serial)
+idf.py -p /dev/ttyUSB0 flash monitor
 ```
 
-### Firmware Dependencies
+### OTA Firmware Update
 
-This firmware depends on the following public libraries:
+After initial serial flash, firmware can be updated over WiFi:
 
-- **[OtaUpdateLibraryWROOM32](https://github.com/trailcurrentoss/OtaUpdateLibraryWROOM32)** (v0.0.1) - Over-the-air firmware update functionality
-- **[TwaiTaskBasedLibraryWROOM32](https://github.com/trailcurrentoss/TwaiTaskBasedLibraryWROOM32)** (v0.0.1) - CAN bus communication interface
-- **[ESP32ArduinoDebugLibrary](https://github.com/trailcurrentoss/ESP32ArduinoDebugLibrary)** (v2.0.0) - Debug macro system with compile-time removal
+1. **Provision WiFi credentials** via CAN bus (message ID 0x01)
+2. **Trigger OTA mode** via CAN bus (message ID 0x00 with device MAC bytes)
+3. **Upload firmware** via HTTP:
+   ```bash
+   curl -X POST http://esp32-XXYYZZ.local/ota --data-binary @build/torrent.bin
+   ```
 
-All dependencies are automatically resolved by PlatformIO during the build process.
+The device enters OTA mode for 3 minutes, starts an HTTP server, and advertises via mDNS. After a successful upload it reboots into the new firmware. Dual OTA partitions provide rollback safety.
 
-### Serial Debugging
+### mDNS Self-Discovery
 
-Debug output is controlled by the `DEBUG` build flag in `platformio.ini`:
+New modules register themselves with the Headwaters controller automatically:
 
-```ini
-build_flags = -DDEBUG=1   ; Enable debug output (default)
-; build_flags = -DDEBUG=0  ; Disable — all debug calls compile away to zero overhead
-```
+1. **Provision WiFi credentials** via CAN bus (message ID 0x01)
+2. **Send discovery trigger** via CAN bus (message ID 0x02, broadcast)
+3. Module joins WiFi and advertises a `_trailcurrent._tcp` mDNS service with metadata:
+   - `type=torrent` — module type
+   - `canid=0x1B` — CAN status message ID
+   - `fw=1.0.0` — firmware version
+4. Headwaters confirms registration by calling `GET /discovery/confirm`
+5. Module saves configured state and tears down WiFi
 
-When enabled, debug macros (`debugln()`, `debugf()`, `debug_tag()`, etc.) output to Serial at 115200 baud. When disabled (`DEBUG=0`), all debug code is completely removed at compile time with no performance or flash size impact.
+A configured module ignores subsequent discovery triggers. Send a discovery reset (CAN ID 0x03 with MAC bytes) to re-enable discovery.
+
+### Logging
+
+Firmware uses the ESP-IDF logging system (`ESP_LOGI`, `ESP_LOGW`, `ESP_LOGE`). Log output is available on the serial monitor at 115200 baud.
+
+Log verbosity can be configured at build time via `idf.py menuconfig` under **Component config > Log output**.
 
 **WiFi Credentials:**
 - WiFi credentials are provisioned dynamically via CAN bus (Message ID 0x01)
 - Credentials are stored in NVS (non-volatile storage) and persist across reboots
-- For standalone testing, credentials can be set manually in firmware
+- For standalone testing, credentials can be set manually via NVS
 
 ### CAN Bus Protocol
 
@@ -132,17 +151,32 @@ When enabled, debug macros (`debugln()`, `debugf()`, `debug_tag()`, etc.) output
 
 | CAN ID | Description |
 |--------|-------------|
-| 0x00 | OTA update trigger (MAC-based device targeting) |
-| 0x01 | WiFi credential provisioning (SSID/password via CAN) |
-| 0x18 | Toggle channel on/off (byte 0 = channel 0-7, 8=all on, 9=all off) |
-| 0x21 | Set brightness (byte 0 = channel, byte 1 = PWM value 0-255) |
-| 0x1E | Trigger light sequence (interior/exterior animations) |
+| 0x00 | OTA update trigger (3 bytes: last 3 MAC bytes for device targeting) |
+| 0x01 | WiFi credential provisioning (chunked SSID/password protocol) |
+| 0x02 | Discovery trigger (broadcast, no payload) |
+| 0x03 | Discovery reset (3 bytes: last 3 MAC bytes for device targeting) |
+| 0x15 | Set brightness (byte 0 = channel 0-7, byte 1 = PWM value 0-255) |
+| 0x18 | Toggle channel on/off (byte 0 = channel 0-7, 8=all off/on, 9=all on) |
+| 0x1E | Trigger light sequence (byte 0: 0=interior, 1=exterior) |
 
 **Transmit (Module to Bus):**
 
-| CAN ID | Description |
-|--------|-------------|
-| 0x1B | Status report - current PWM values for all 8 channels (8 bytes) |
+| CAN ID | Interval | Description |
+|--------|----------|-------------|
+| 0x1B | 33 ms (30 Hz) | Status report - current PWM values for all 8 channels (8 bytes) |
+
+### WiFi Credential Provisioning Protocol
+
+WiFi credentials are sent over CAN in chunks (max 6 payload bytes per CAN frame):
+
+| Step | data[0] | Payload | Description |
+|------|---------|---------|-------------|
+| 1 | 0x01 | ssid_len, pass_len, ssid_chunks, pass_chunks | Start message |
+| 2 | 0x02 | chunk_index, up to 6 bytes | SSID chunk |
+| 3 | 0x03 | chunk_index, up to 6 bytes | Password chunk |
+| 4 | 0x04 | XOR checksum | End/commit message |
+
+All messages are sent on CAN ID 0x01. A 5-second timeout resets the state machine if the sequence is interrupted.
 
 ## Manufacturing
 
@@ -165,15 +199,15 @@ When enabled, debug macros (`debugln()`, `debugf()`, `debug_tag()`, etc.) output
 ├── CAD/                          # FreeCAD case design and 3D models
 │   ├── trailcurrent-torrent-case.FCStd
 │   └── TrailCurrentTorrent.3mf
-├── src/                          # Firmware source
-│   ├── main.cpp                  # Main application
-│   ├── globals.h                 # Pin definitions
-│   ├── canHelper.h               # CAN message handling
-│   ├── lightSequences.h          # Startup and animated light sequences
-│   └── wifiConfig.h              # NVS WiFi credential storage
-├── data/
-│   └── partitions.csv            # ESP32 flash partition layout
-└── platformio.ini                # Build configuration
+├── main/                         # ESP-IDF firmware source
+│   ├── main.c                    # App entry, LEDC PWM, TWAI CAN task, light sequences
+│   ├── ota.h / ota.c             # OTA updates, WiFi management, credential provisioning
+│   ├── discovery.h / discovery.c # mDNS self-discovery and Headwaters registration
+│   ├── CMakeLists.txt            # Component build config
+│   └── idf_component.yml         # ESP-IDF component dependencies
+├── partitions.csv                # ESP32 flash partition layout (dual OTA)
+├── sdkconfig.defaults            # ESP-IDF build defaults
+└── CMakeLists.txt                # Root ESP-IDF project config
 ```
 
 ## License

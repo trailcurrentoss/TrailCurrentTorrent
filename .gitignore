@@ -1,25 +1,58 @@
-# PlatformIO
-.pio/
-.platformio/
+# KiCAD backup files
+*.bak
+*.backup
+*~
+*.kicad_pcb-bak
+*.sch-bak
+*.kicad_sch-bak
+*-backups/
+
+# KiCAD cache
+fp-info-cache
+
+# ESP-IDF
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
 
 # IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Build artifacts
-*.o
-*.a
-build/
+# OS files
+.DS_Store
+Thumbs.db
 
-# Development
-CLAUDE.md
+# AI agent configuration (local only — never commit)
+.claude
 .claude/
-OTA_TEST_GUIDE.md
+.claude.md
+CLAUDE.md
+CLAUDE.MD
+.cursorrules
+.cursor/
+.github/copilot*
+.aider*
+.continue/
+.codeium/
+.tabnine*
+.sourcery.yaml
 
-# Temporary files
-*.tmp
-*.bak
-
+# Secrets
+secrets.h
 *.secrets
-*.FCBak
 *.zip
+
+# Temporary/backup files
+*.orig
+*.tmp
+
+# FreeCAD temporary and backup files
+.xdp-*
+*.FCBak*
+*.FCStd1
+*.FCStd2
