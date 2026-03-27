@@ -394,8 +394,6 @@ static void twai_task(void *arg)
                     ota_handle_wifi_config(msg.data, msg.data_length_code);
                 } else if (msg.identifier == CAN_ID_DISCOVERY_TRIGGER) {
                     discovery_handle_trigger();
-                } else if (msg.identifier == CAN_ID_DISCOVERY_RESET) {
-                    discovery_handle_reset(msg.data, msg.data_length_code);
                 } else if (msg.identifier == CAN_ID_TOGGLE) {
                     handle_toggle(msg.data, msg.data_length_code);
                 } else if (msg.identifier == CAN_ID_BRIGHTNESS) {

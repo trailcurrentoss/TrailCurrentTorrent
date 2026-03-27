@@ -10,7 +10,6 @@
 #include "esp_http_server.h"
 #include "esp_timer.h"
 #include "mdns.h"
-#include "nvs.h"
 
 static const char *TAG = "discovery";
 
@@ -26,47 +25,10 @@ static const char *TAG = "discovery";
 #define CAN_STATUS_ID  0x1B
 
 // ---------------------------------------------------------------------------
-// NVS configured flag
-// ---------------------------------------------------------------------------
-
-#define NVS_DISCOVERY_NS    "discovery"
-#define NVS_KEY_CONFIGURED  "configured"
-
-static bool s_configured = false;
-
-// ---------------------------------------------------------------------------
 // Discovery state
 // ---------------------------------------------------------------------------
 
 static volatile bool s_confirmed = false;
-
-// ---------------------------------------------------------------------------
-// NVS helpers
-// ---------------------------------------------------------------------------
-
-static bool load_configured(void)
-{
-    nvs_handle_t handle;
-    uint8_t val = 0;
-    if (nvs_open(NVS_DISCOVERY_NS, NVS_READONLY, &handle) == ESP_OK) {
-        nvs_get_u8(handle, NVS_KEY_CONFIGURED, &val);
-        nvs_close(handle);
-    }
-    return val != 0;
-}
-
-static void save_configured(bool configured)
-{
-    nvs_handle_t handle;
-    if (nvs_open(NVS_DISCOVERY_NS, NVS_READWRITE, &handle) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to open NVS for writing");
-        return;
-    }
-    nvs_set_u8(handle, NVS_KEY_CONFIGURED, configured ? 1 : 0);
-    nvs_commit(handle);
-    nvs_close(handle);
-    s_configured = configured;
-}
 
 // ---------------------------------------------------------------------------
 // mDNS service advertisement with TXT records
@@ -138,20 +100,11 @@ static httpd_handle_t discovery_start_server(void)
 
 void discovery_init(void)
 {
-    s_configured = load_configured();
-    if (s_configured) {
-        ESP_LOGI(TAG, "Module already configured — will ignore discovery triggers");
-    } else {
-        ESP_LOGI(TAG, "Module unconfigured — will respond to CAN 0x02 discovery trigger");
-    }
+    ESP_LOGI(TAG, "Discovery ready — will respond to CAN 0x02 trigger");
 }
 
 void discovery_handle_trigger(void)
 {
-    if (s_configured) {
-        return;  // silently ignore
-    }
-
     if (!ota_has_credentials()) {
         ESP_LOGE(TAG, "Discovery triggered but no WiFi credentials — cannot respond");
         return;
@@ -159,7 +112,10 @@ void discovery_handle_trigger(void)
 
     ESP_LOGI(TAG, "=== Entering discovery mode ===");
 
-    wifi_connect();
+    if (!wifi_connect()) {
+        ESP_LOGE(TAG, "WiFi connection failed — aborting discovery");
+        return;
+    }
     discovery_mdns_start();
     httpd_handle_t server = discovery_start_server();
 
@@ -184,26 +140,8 @@ void discovery_handle_trigger(void)
     wifi_disconnect();
 
     if (s_confirmed) {
-        save_configured(true);
         ESP_LOGI(TAG, "=== Discovery complete — module registered ===");
     } else {
         ESP_LOGI(TAG, "=== Discovery timed out — will respond to next trigger ===");
     }
-}
-
-void discovery_handle_reset(const uint8_t *data, uint8_t len)
-{
-    if (len < 3) return;
-
-    const char *hostname = ota_get_hostname();
-    char target[16];
-    snprintf(target, sizeof(target), "esp32-%02X%02X%02X",
-             data[0], data[1], data[2]);
-
-    if (strcmp(target, hostname) != 0) {
-        return;
-    }
-
-    ESP_LOGI(TAG, "Discovery reset received — clearing configured flag");
-    save_configured(false);
 }
