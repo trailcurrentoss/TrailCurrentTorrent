@@ -6,6 +6,7 @@
 #include "driver/twai.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "wifi_config.h"
 #include "ota.h"
 #include "discovery.h"
 
@@ -47,6 +48,11 @@ static const int OUTPUT_PINS[8] = {
 // =============================================================================
 // CAN Bus Configuration
 // =============================================================================
+
+// CAN protocol IDs — shared (no address offset)
+#define CAN_ID_OTA              0x00
+#define CAN_ID_WIFI_CONFIG      0x01
+#define CAN_ID_DISCOVERY_TRIGGER 0x02
 
 // CAN ID bases — each instance offsets by TORRENT_ADDRESS
 #define CAN_ID_BRIGHTNESS_BASE  0x15
@@ -404,10 +410,10 @@ static void twai_task(void *arg)
             while (twai_receive(&msg, 0) == ESP_OK) {
                 if (msg.rtr) continue;
 
-                if (msg.identifier == CAN_ID_OTA_TRIGGER) {
+                if (msg.identifier == CAN_ID_OTA) {
                     ota_handle_trigger(msg.data, msg.data_length_code);
                 } else if (msg.identifier == CAN_ID_WIFI_CONFIG) {
-                    ota_handle_wifi_config(msg.data, msg.data_length_code);
+                    wifi_config_handle_can(msg.data, msg.data_length_code);
                 } else if (msg.identifier == CAN_ID_DISCOVERY_TRIGGER) {
                     discovery_handle_trigger();
                 } else if (msg.identifier == CAN_ID_TOGGLE) {
@@ -419,6 +425,9 @@ static void twai_task(void *arg)
                 }
             }
         }
+
+        // Check wifi config timeout
+        wifi_config_check_timeout();
 
         // --- Periodic status transmit ---
         int64_t now_us = esp_timer_get_time();
@@ -447,12 +456,22 @@ static void twai_task(void *arg)
 
 void app_main(void)
 {
+    wifi_config_init();
+
+    // Load WiFi credentials from NVS
+    char ssid[33], password[64];
+    if (wifi_config_load(ssid, sizeof(ssid), password, sizeof(password))) {
+        ESP_LOGI(TAG, "WiFi credentials loaded (SSID: %s)", ssid);
+    } else {
+        ESP_LOGW(TAG, "No WiFi credentials — provision via CAN ID 0x01");
+    }
+
     ota_init();
     discovery_init();
 
     ESP_LOGI(TAG, "=== TrailCurrent Torrent (addr %d) ===", TORRENT_ADDRESS);
     ESP_LOGI(TAG, "8-Channel PWM Lighting Control Module");
-    ESP_LOGI(TAG, "Hostname: %s", ota_get_hostname());
+    ESP_LOGI(TAG, "Hostname: %s", wifi_config_get_hostname());
 
     // Initialize LEDC PWM for all 8 output channels
     pwm_init();

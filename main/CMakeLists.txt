@@ -1,6 +1,6 @@
-idf_component_register(SRCS "main.c" "ota.c" "discovery.c"
+idf_component_register(SRCS "wifi_config.c" "main.c" "ota.c" "discovery.c"
                   INCLUDE_DIRS "."
-                  REQUIRES driver nvs_flash esp_wifi esp_http_server mdns esp_timer app_update)
+                  REQUIRES driver esp_timer nvs_flash esp_wifi esp_netif esp_http_server esp_app_format mdns app_update)
 
 # Module type for discovery mDNS advertisement
 target_compile_definitions(${COMPONENT_LIB} PRIVATE MODULE_TYPE="torrent")
