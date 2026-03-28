@@ -480,7 +480,7 @@ void app_main(void)
              CAN_ID_BRIGHTNESS, CAN_ID_TOGGLE, CAN_STATUS_ID, CAN_ID_SEQUENCE);
 
     // CAN runs in its own task so bus errors never block app_main
-    xTaskCreate(twai_task, "twai", 4096, NULL, 5, NULL);
+    xTaskCreatePinnedToCore(twai_task, "twai", 4096, NULL, 5, NULL, 1);
 
     ESP_LOGI(TAG, "Setup complete");
 
