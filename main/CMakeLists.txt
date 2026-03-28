@@ -4,3 +4,8 @@ idf_component_register(SRCS "main.c" "ota.c" "discovery.c"
 
 # Module type for discovery mDNS advertisement
 target_compile_definitions(${COMPONENT_LIB} PRIVATE MODULE_TYPE="torrent")
+
+# Module address (0-2): idf.py build -DTORRENT_ADDRESS=1
+if(DEFINED TORRENT_ADDRESS)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE TORRENT_ADDRESS=${TORRENT_ADDRESS})
+endif()

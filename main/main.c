@@ -12,6 +12,17 @@
 static const char *TAG = "torrent";
 
 // =============================================================================
+// Module address (0-2) — set at build time: idf.py build -DTORRENT_ADDRESS=1
+// =============================================================================
+
+#ifndef TORRENT_ADDRESS
+#define TORRENT_ADDRESS 0
+#endif
+#if TORRENT_ADDRESS < 0 || TORRENT_ADDRESS > 2
+#error "TORRENT_ADDRESS must be 0-2"
+#endif
+
+// =============================================================================
 // Pin Definitions — ESP32-WROOM-32 8-Channel PWM Output Module
 // =============================================================================
 
@@ -37,15 +48,20 @@ static const int OUTPUT_PINS[8] = {
 // CAN Bus Configuration
 // =============================================================================
 
-#define CAN_STATUS_ID       0x1B
+// CAN ID bases — each instance offsets by TORRENT_ADDRESS
+#define CAN_ID_BRIGHTNESS_BASE  0x15
+#define CAN_ID_TOGGLE_BASE      0x18
+#define CAN_ID_STATUS_BASE      0x1B
+#define CAN_ID_SEQUENCE_BASE    0x33
+
+#define CAN_ID_BRIGHTNESS   (CAN_ID_BRIGHTNESS_BASE + TORRENT_ADDRESS)
+#define CAN_ID_TOGGLE       (CAN_ID_TOGGLE_BASE + TORRENT_ADDRESS)
+#define CAN_STATUS_ID       (CAN_ID_STATUS_BASE + TORRENT_ADDRESS)
+#define CAN_ID_SEQUENCE     (CAN_ID_SEQUENCE_BASE + TORRENT_ADDRESS)
+
 #define CAN_BAUDRATE        500000
 #define STATUS_TX_INTERVAL_MS  33   // ~30 Hz
 #define TX_PROBE_INTERVAL_MS  2000 // slow probe when no peers detected
-
-// CAN IDs for channel control
-#define CAN_ID_TOGGLE       0x18    // Toggle channel on/off (24 decimal)
-#define CAN_ID_BRIGHTNESS   0x15    // Set brightness 0-255 (21 decimal)
-#define CAN_ID_SEQUENCE     0x1E    // Trigger light sequence (30 decimal)
 
 // =============================================================================
 // LEDC PWM Configuration
@@ -434,15 +450,15 @@ void app_main(void)
     ota_init();
     discovery_init();
 
-    ESP_LOGI(TAG, "=== TrailCurrent Torrent ===");
+    ESP_LOGI(TAG, "=== TrailCurrent Torrent (addr %d) ===", TORRENT_ADDRESS);
     ESP_LOGI(TAG, "8-Channel PWM Lighting Control Module");
     ESP_LOGI(TAG, "Hostname: %s", ota_get_hostname());
 
     // Initialize LEDC PWM for all 8 output channels
     pwm_init();
 
-    ESP_LOGI(TAG, "CAN status TX ID: 0x%02X, interval: %d ms",
-             CAN_STATUS_ID, STATUS_TX_INTERVAL_MS);
+    ESP_LOGI(TAG, "CAN IDs: brightness=0x%02X toggle=0x%02X status=0x%02X sequence=0x%02X",
+             CAN_ID_BRIGHTNESS, CAN_ID_TOGGLE, CAN_STATUS_ID, CAN_ID_SEQUENCE);
 
     // CAN runs in its own task so bus errors never block app_main
     xTaskCreate(twai_task, "twai", 4096, NULL, 5, NULL);

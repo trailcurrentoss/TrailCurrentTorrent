@@ -4,7 +4,7 @@
   <img src="DOCS/images/torrent_main.png" alt="TrailCurrent Torrent" width="600">
 </p>
 
-CAN-controlled 8-channel PWM power distribution module for vehicle lighting and accessory control with OTA firmware update capability and mDNS self-discovery. Part of the [TrailCurrent](https://trailcurrent.com) open-source vehicle platform.
+CAN-controlled 8-channel PWM power distribution module for vehicle lighting and accessory control with OTA firmware update capability and mDNS self-discovery. Up to 3 Torrent modules can operate on the same CAN bus, each with a unique address and CAN IDs. Part of the [TrailCurrent](https://trailcurrent.com) open-source vehicle platform.
 
 ## Hardware Overview
 
@@ -13,6 +13,7 @@ CAN-controlled 8-channel PWM power distribution module for vehicle lighting and 
 - **Key Features:**
   - 8 independent MOSFET-driven PWM outputs (0-255 brightness)
   - CAN bus communication at 500 kbps
+  - Up to 3 modules on the same bus via compile-time `TORRENT_ADDRESS` (0-2)
   - Individual and master on/off/brightness control
   - Animated light sequences (startup, interior, exterior)
   - Over-the-air (OTA) firmware updates via WiFi
@@ -99,12 +100,27 @@ source ~/esp/v5.5.2/esp-idf/export.sh
 # First time: set chip target
 idf.py set-target esp32
 
-# Build firmware
+# Build firmware (default address 0)
 idf.py build
+
+# Build for a specific module address (0-2)
+idf.py build -DTORRENT_ADDRESS=1
 
 # Flash and monitor (serial)
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
+
+### Multi-Instance Addressing
+
+Up to 3 Torrent modules can share the same CAN bus. Each module is built with a unique address that determines its CAN IDs:
+
+```bash
+idf.py build                      # Address 0 (default)
+idf.py build -DTORRENT_ADDRESS=1  # Address 1
+idf.py build -DTORRENT_ADDRESS=2  # Address 2
+```
+
+Each address produces a firmware binary with unique CAN IDs (see CAN Bus Protocol below). Flash each binary to a different ESP32. At boot, the module logs its address and CAN IDs for verification.
 
 ### OTA Firmware Update
 
@@ -121,18 +137,19 @@ The device enters OTA mode for 3 minutes, starts an HTTP server, and advertises 
 
 ### mDNS Self-Discovery
 
-New modules register themselves with the Headwaters controller automatically:
+Modules register themselves with the Headwaters controller:
 
 1. **Provision WiFi credentials** via CAN bus (message ID 0x01)
 2. **Send discovery trigger** via CAN bus (message ID 0x02, broadcast)
 3. Module joins WiFi and advertises a `_trailcurrent._tcp` mDNS service with metadata:
    - `type=torrent` — module type
-   - `canid=0x1B` — CAN status message ID
+   - `addr=0` — module address (0-2, from `TORRENT_ADDRESS` build flag)
+   - `canid=0x1B` — CAN status message ID (varies by address)
    - `fw=1.0.0` — firmware version
 4. Headwaters confirms registration by calling `GET /discovery/confirm`
-5. Module saves configured state and tears down WiFi
+5. Module tears down WiFi and returns to normal CAN operation
 
-A configured module ignores subsequent discovery triggers. Send a discovery reset (CAN ID 0x03 with MAC bytes) to re-enable discovery.
+Discovery can be triggered again on subsequent CAN 0x02 broadcasts. A module that is already running a discovery session ignores additional triggers until the current session completes or times out (3 minutes).
 
 ### Logging
 
@@ -147,23 +164,24 @@ Log verbosity can be configured at build time via `idf.py menuconfig` under **Co
 
 ### CAN Bus Protocol
 
-**Receive (Bus to Module):**
+CAN IDs are computed as `BASE + TORRENT_ADDRESS`. The table below shows base IDs and per-instance values.
 
-| CAN ID | Description |
-|--------|-------------|
-| 0x00 | OTA update trigger (3 bytes: last 3 MAC bytes for device targeting) |
-| 0x01 | WiFi credential provisioning (chunked SSID/password protocol) |
-| 0x02 | Discovery trigger (broadcast, no payload) |
-| 0x03 | Discovery reset (3 bytes: last 3 MAC bytes for device targeting) |
-| 0x15 | Set brightness (byte 0 = channel 0-7, byte 1 = PWM value 0-255) |
-| 0x18 | Toggle channel on/off (byte 0 = channel 0-7, 8=all off/on, 9=all on) |
-| 0x1E | Trigger light sequence (byte 0: 0=interior, 1=exterior) |
+**Receive (Bus → Module):**
 
-**Transmit (Module to Bus):**
+| Base ID | Addr 0 | Addr 1 | Addr 2 | Description |
+|---------|--------|--------|--------|-------------|
+| — | 0x00 | 0x00 | 0x00 | OTA update trigger (3 bytes: last 3 MAC bytes for device targeting) |
+| — | 0x01 | 0x01 | 0x01 | WiFi credential provisioning (chunked SSID/password protocol) |
+| — | 0x02 | 0x02 | 0x02 | Discovery trigger (broadcast, no payload) |
+| 0x15 | 0x15 | 0x16 | 0x17 | Set brightness (byte 0 = channel 0-7, byte 1 = PWM value 0-255) |
+| 0x18 | 0x18 | 0x19 | 0x1A | Toggle channel on/off (byte 0 = channel 0-7, 8=all off/on, 9=all on) |
+| 0x33 | 0x33 | 0x34 | 0x35 | Trigger light sequence (byte 0: 0=interior, 1=exterior) |
 
-| CAN ID | Interval | Description |
-|--------|----------|-------------|
-| 0x1B | 33 ms (30 Hz) | Status report - current PWM values for all 8 channels (8 bytes) |
+**Transmit (Module → Bus):**
+
+| Base ID | Addr 0 | Addr 1 | Addr 2 | Interval | Description |
+|---------|--------|--------|--------|----------|-------------|
+| 0x1B | 0x1B | 0x1C | 0x1D | 33 ms (30 Hz) | Status report — current PWM values for all 8 channels (8 bytes) |
 
 ### WiFi Credential Provisioning Protocol
 

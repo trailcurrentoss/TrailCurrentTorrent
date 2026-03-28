@@ -21,8 +21,12 @@ static const char *TAG = "discovery";
 #error "MODULE_TYPE must be defined (e.g., \"torrent\")"
 #endif
 
-// CAN TX ID for status messages (fixed for Torrent modules)
-#define CAN_STATUS_ID  0x1B
+#ifndef TORRENT_ADDRESS
+#define TORRENT_ADDRESS 0
+#endif
+
+// CAN TX ID for status messages (per-instance)
+#define CAN_STATUS_ID  (0x1B + TORRENT_ADDRESS)
 
 // ---------------------------------------------------------------------------
 // Discovery state
@@ -39,8 +43,10 @@ static void discovery_mdns_start(void)
 {
     const char *hostname = ota_get_hostname();
 
-    // Build CAN ID string
+    // Build address and CAN ID strings
+    char addr_str[4];
     char canid_str[8];
+    snprintf(addr_str, sizeof(addr_str), "%d", TORRENT_ADDRESS);
     snprintf(canid_str, sizeof(canid_str), "0x%02X", CAN_STATUS_ID);
 
     // Get firmware version from app descriptor
@@ -52,6 +58,7 @@ static void discovery_mdns_start(void)
 
     mdns_txt_item_t txt[] = {
         { "type",  MODULE_TYPE },
+        { "addr",  addr_str },
         { "canid", canid_str },
         { "fw",    app->version },
     };
