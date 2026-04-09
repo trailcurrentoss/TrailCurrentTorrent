@@ -122,15 +122,52 @@ idf.py build -DTORRENT_ADDRESS=2  # Address 2
 
 Each address produces a firmware binary with unique CAN IDs (see CAN Bus Protocol below). Flash each binary to a different ESP32. At boot, the module logs its address and CAN IDs for verification.
 
+#### Building All Variants
+
+Use `build-all.sh` to build all 3 address variants in a single run:
+
+```bash
+./build-all.sh
+```
+
+This builds each address sequentially and produces distinctly-named binaries:
+
+```
+build/torrent_addr0.bin   # Address 0
+build/torrent_addr1.bin   # Address 1
+build/torrent_addr2.bin   # Address 2
+```
+
+#### Creating a GitHub Release
+
+After building all variants, create a release with all 3 binaries as assets:
+
+```bash
+# Tag the release
+git tag -a v1.0.0 -m "Firmware release v1.0.0"
+git push origin v1.0.0
+
+# Create the release with all 3 address binaries
+gh release create v1.0.0 \
+  build/torrent_addr0.bin \
+  build/torrent_addr1.bin \
+  build/torrent_addr2.bin \
+  --repo trailcurrentoss/TrailCurrentTorrent \
+  --title "v1.0.0" \
+  --notes "Firmware release v1.0.0"
+```
+
+The Headwaters deployment system and the web-based firmware installer both expect these 3 files per release. Single-address modules (like Borealis) publish one binary; multi-address modules publish one per address.
+
 ### OTA Firmware Update
 
 After initial serial flash, firmware can be updated over WiFi:
 
 1. **Provision WiFi credentials** via CAN bus (message ID 0x01)
 2. **Trigger OTA mode** via CAN bus (message ID 0x00 with device MAC bytes)
-3. **Upload firmware** via HTTP:
+3. **Upload firmware** via HTTP (use the binary matching the module's address):
    ```bash
-   curl -X POST http://esp32-XXYYZZ.local/ota --data-binary @build/torrent.bin
+   curl -X POST http://esp32-XXYYZZ.local/ota --data-binary @build/torrent_addr0.bin
    ```
 
 The device enters OTA mode for 3 minutes, starts an HTTP server, and advertises via mDNS. After a successful upload it reboots into the new firmware. Dual OTA partitions provide rollback safety.
@@ -173,6 +210,7 @@ CAN IDs are computed as `BASE + TORRENT_ADDRESS`. The table below shows base IDs
 | — | 0x00 | 0x00 | 0x00 | OTA update trigger (3 bytes: last 3 MAC bytes for device targeting) |
 | — | 0x01 | 0x01 | 0x01 | WiFi credential provisioning (chunked SSID/password protocol) |
 | — | 0x02 | 0x02 | 0x02 | Discovery trigger (broadcast, no payload) |
+| — | 0x04 | 0x04 | 0x04 | Version report on boot: `[mac3, mac4, mac5, major, minor, patch]` |
 | 0x15 | 0x15 | 0x16 | 0x17 | Set brightness (byte 0 = channel 0-7, byte 1 = PWM value 0-255) |
 | 0x18 | 0x18 | 0x19 | 0x1A | Toggle channel on/off (byte 0 = channel 0-7, 8=all off/on, 9=all on) |
 | 0x33 | 0x33 | 0x34 | 0x35 | Trigger light sequence (byte 0: 0=interior, 1=exterior) |
@@ -225,6 +263,7 @@ All messages are sent on CAN ID 0x01. A 5-second timeout resets the state machin
 │   └── idf_component.yml         # ESP-IDF component dependencies
 ├── partitions.csv                # ESP32 flash partition layout (dual OTA)
 ├── sdkconfig.defaults            # ESP-IDF build defaults
+├── build-all.sh                  # Build all 3 address variants (addr 0-2)
 └── CMakeLists.txt                # Root ESP-IDF project config
 ```
 

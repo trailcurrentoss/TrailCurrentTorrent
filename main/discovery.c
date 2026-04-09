@@ -26,6 +26,9 @@ static const char *TAG = "discovery";
 #define TORRENT_ADDRESS 0
 #endif
 
+// CAN TX ID for status messages (per-instance)
+#define CAN_STATUS_ID  (0x1B + TORRENT_ADDRESS)
+
 // ---------------------------------------------------------------------------
 // Discovery state
 // ---------------------------------------------------------------------------
@@ -41,9 +44,13 @@ static void discovery_mdns_start(void)
 {
     const char *hostname = wifi_config_get_hostname();
 
+    // Build address and CAN ID strings
     char addr_str[4];
+    char canid_str[8];
     snprintf(addr_str, sizeof(addr_str), "%d", TORRENT_ADDRESS);
+    snprintf(canid_str, sizeof(canid_str), "0x%02X", CAN_STATUS_ID);
 
+    // Get firmware version from app descriptor
     const esp_app_desc_t *app = esp_app_get_description();
 
     mdns_init();
@@ -53,14 +60,15 @@ static void discovery_mdns_start(void)
     mdns_txt_item_t txt[] = {
         { "type",  MODULE_TYPE },
         { "addr",  addr_str },
+        { "canid", canid_str },
         { "fw",    app->version },
     };
 
     mdns_service_add("TrailCurrent Discovery", "_trailcurrent", "_tcp",
                      80, txt, sizeof(txt) / sizeof(txt[0]));
 
-    ESP_LOGI(TAG, "mDNS discovery: %s.local type=%s addr=%s fw=%s",
-             hostname, MODULE_TYPE, addr_str, app->version);
+    ESP_LOGI(TAG, "mDNS discovery: %s.local type=%s addr=%s canid=%s fw=%s",
+             hostname, MODULE_TYPE, addr_str, canid_str, app->version);
 }
 
 // ---------------------------------------------------------------------------
