@@ -1,8 +1,17 @@
 #!/bin/bash
 # Build all Torrent address variants (0-2).
-# Produces merged binaries (bootloader + partition table + OTA data + app)
-# that can be flashed at offset 0x0:
-#   build/torrent_addr0.bin, torrent_addr1.bin, torrent_addr2.bin
+# Produces two binaries per address:
+#   build/torrent_addr{N}.bin         — app-only (for OTA via Headwaters)
+#   build/torrent_addr{N}_merged.bin  — merged  (for web flasher, full flash at 0x0)
+#
+# The app-only binary contains just the application image. Headwaters OTA
+# writes it to a single app partition via esp_ota_write, which validates
+# the image as an app. A merged binary would fail that validation because
+# it starts with the bootloader, not an app header.
+#
+# The merged binary combines bootloader + partition table + OTA data + app
+# into one file flashable at offset 0x0. The web flasher requires this
+# because it writes the entire flash from a single binary.
 set -e
 
 MAX_ADDR=2
@@ -14,8 +23,11 @@ for addr in $(seq 0 $MAX_ADDR); do
     echo "========================================"
     idf.py build -DTORRENT_ADDRESS=$addr
 
-    # Create merged binary (flashable at 0x0, includes all partitions)
-    esptool.py --chip esp32 merge_bin -o "$OUTPUT_DIR/torrent_addr${addr}.bin" \
+    # Copy app-only binary with address-specific name (for OTA)
+    cp "$OUTPUT_DIR/torrent.bin" "$OUTPUT_DIR/torrent_addr${addr}.bin"
+
+    # Create merged binary (for web flasher — flashable at 0x0)
+    esptool.py --chip esp32 merge_bin -o "$OUTPUT_DIR/torrent_addr${addr}_merged.bin" \
         --flash_mode dio --flash_size 4MB \
         0x1000 "$OUTPUT_DIR/bootloader/bootloader.bin" \
         0x8000 "$OUTPUT_DIR/partition_table/partition-table.bin" \
@@ -27,4 +39,11 @@ done
 echo "========================================"
 echo "Build complete"
 echo "========================================"
-ls -lh "$OUTPUT_DIR"/torrent_addr*.bin
+echo ""
+echo "App-only binaries (for OTA):"
+ls -lh "$OUTPUT_DIR"/torrent_addr[0-9].bin
+echo ""
+echo "Merged binaries (for web flasher):"
+ls -lh "$OUTPUT_DIR"/torrent_addr*_merged.bin
+echo ""
+echo "Attach ALL of the above to the GitHub release."

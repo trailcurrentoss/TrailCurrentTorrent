@@ -130,34 +130,36 @@ Use `build-all.sh` to build all 3 address variants in a single run:
 ./build-all.sh
 ```
 
-This builds each address sequentially and produces distinctly-named binaries:
+This produces two binaries per address — one for OTA updates, one for the web flasher:
 
-```
-build/torrent_addr0.bin   # Address 0
-build/torrent_addr1.bin   # Address 1
-build/torrent_addr2.bin   # Address 2
-```
+| File | Contents | Used By |
+|------|----------|---------|
+| `build/torrent_addr{N}.bin` | Application image only | Headwaters OTA (`deploy.sh`, `ota.js`), direct `curl` uploads |
+| `build/torrent_addr{N}_merged.bin` | Bootloader + partition table + OTA data + application | Web flasher (full flash at 0x0) |
+
+The two binary types exist because OTA and the web flasher write to different targets. Headwaters OTA sends the binary to the device's `/ota` HTTP endpoint, which calls `esp_ota_write` to write it to a single app partition. That function validates the image as an application — a merged binary starts with the bootloader instead of an app header, so it would fail validation. The web flasher writes the entire flash contents starting at offset 0x0, so it needs all partitions combined into one file.
 
 #### Creating a GitHub Release
 
-After building all variants, create a release with all 3 binaries as assets:
+After building all variants, attach all 6 binaries (3 app-only + 3 merged) as release assets:
 
 ```bash
-# Tag the release
 git tag -a v1.0.0 -m "Firmware release v1.0.0"
 git push origin v1.0.0
 
-# Create the release with all 3 address binaries
 gh release create v1.0.0 \
   build/torrent_addr0.bin \
   build/torrent_addr1.bin \
   build/torrent_addr2.bin \
+  build/torrent_addr0_merged.bin \
+  build/torrent_addr1_merged.bin \
+  build/torrent_addr2_merged.bin \
   --repo trailcurrentoss/TrailCurrentTorrent \
   --title "v1.0.0" \
   --notes "Firmware release v1.0.0"
 ```
 
-The Headwaters deployment system and the web-based firmware installer both expect these 3 files per release. Single-address modules (like Borealis) publish one binary; multi-address modules publish one per address.
+Both the Headwaters deployment system and the web flasher pull from GitHub releases. The web flasher matches `_merged.bin` files by name for full-flash use. The Headwaters deployment system (`fetch-firmware.sh`) downloads the app-only `torrent_addr{N}.bin` files for OTA delivery.
 
 ### OTA Firmware Update
 
@@ -165,7 +167,7 @@ After initial serial flash, firmware can be updated over WiFi:
 
 1. **Provision WiFi credentials** via CAN bus (message ID 0x01)
 2. **Trigger OTA mode** via CAN bus (message ID 0x00 with device MAC bytes)
-3. **Upload firmware** via HTTP (use the binary matching the module's address):
+3. **Upload firmware** via HTTP — always use the app-only binary (`torrent_addr{N}.bin`), never the merged binary:
    ```bash
    curl -X POST http://esp32-XXYYZZ.local/ota --data-binary @build/torrent_addr0.bin
    ```
