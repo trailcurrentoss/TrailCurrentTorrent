@@ -1,6 +1,7 @@
 #include "discovery.h"
 #include "wifi_config.h"
 #include "ota.h"
+#include "can_handler.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -27,7 +28,7 @@ static const char *TAG = "discovery";
 #endif
 
 // CAN TX ID for status messages (per-instance)
-#define CAN_STATUS_ID  (0x1B + TORRENT_ADDRESS)
+#define CAN_STATUS_ID  (CAN_ID_STATUS_BASE + TORRENT_ADDRESS)
 
 // ---------------------------------------------------------------------------
 // Discovery state
