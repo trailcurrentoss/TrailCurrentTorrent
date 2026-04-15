@@ -1,12 +1,11 @@
 #include "can_handler.h"
+#include "can_common.h"
 #include "pwm_output.h"
 #include "wifi_config.h"
 #include "discovery.h"
 #include "ota.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include "esp_app_desc.h"
-#include "esp_mac.h"
 #include "driver/twai.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -82,64 +81,23 @@ static void handle_sequence(const uint8_t *data, uint8_t len)
 // Public API
 // =============================================================================
 
-// Broadcast this node's firmware version on CAN 0x04 so Headwaters (or any
-// listener) can record/display the current firmware version.
-// Must only be called AFTER twai_reconfigure_alerts() so any TX failure is
-// captured by the state machine.
-static void send_version_broadcast(void)
-{
-    uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    const esp_app_desc_t *app = esp_app_get_description();
-    unsigned maj = 0, min = 0, pat = 0;
-    sscanf(app->version, "%u.%u.%u", &maj, &min, &pat);
-    twai_message_t msg = {
-        .identifier       = 0x04,
-        .data_length_code = 6,
-        .data = { mac[3], mac[4], mac[5], (uint8_t)maj, (uint8_t)min, (uint8_t)pat },
-    };
-    twai_transmit(&msg, pdMS_TO_TICKS(50));
-    ESP_LOGI(TAG, "Version broadcast: %s (CAN 0x04)", app->version);
-}
-
 esp_err_t can_handler_init(void)
 {
-    twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
-        (gpio_num_t)CAN_TX_PIN, (gpio_num_t)CAN_RX_PIN, TWAI_MODE_NORMAL);
-    twai_timing_config_t  t_config = TWAI_TIMING_CONFIG_500KBITS();
-    twai_filter_config_t  f_config = TWAI_FILTER_CONFIG_ACCEPT_ALL();
+    esp_err_t ret = can_common_init(CAN_TX_PIN, CAN_RX_PIN);
+    if (ret != ESP_OK) return ret;
 
-    esp_err_t ret = twai_driver_install(&g_config, &t_config, &f_config);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "TWAI driver install failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    ret = twai_start();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "TWAI start failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    ESP_LOGI(TAG, "CAN bus initialized (500 kbps, NORMAL, TX=%d RX=%d, addr=%d, "
-             "toggle=0x%02X status=0x%02X brightness=0x%02X sequence=0x%02X)",
-             CAN_TX_PIN, CAN_RX_PIN, TORRENT_ADDRESS,
-             CAN_ID_TOGGLE, CAN_ID_STATUS, CAN_ID_BRIGHTNESS, CAN_ID_SEQUENCE);
+    ESP_LOGI(TAG, "CAN addr=%d toggle=0x%02X status=0x%02X brightness=0x%02X sequence=0x%02X",
+             TORRENT_ADDRESS, CAN_ID_TOGGLE, CAN_ID_STATUS, CAN_ID_BRIGHTNESS, CAN_ID_SEQUENCE);
     return ESP_OK;
 }
 
 void can_handler_task(void *arg)
 {
     // Configure alerts BEFORE any bus activity so no error transitions are missed.
-    uint32_t alerts = TWAI_ALERT_RX_DATA    | TWAI_ALERT_ERR_PASS    |
-                      TWAI_ALERT_BUS_ERROR   | TWAI_ALERT_RX_QUEUE_FULL |
-                      TWAI_ALERT_BUS_OFF     | TWAI_ALERT_BUS_RECOVERED |
-                      TWAI_ALERT_ERR_ACTIVE  | TWAI_ALERT_TX_FAILED   |
-                      TWAI_ALERT_TX_SUCCESS;
-    twai_reconfigure_alerts(alerts, NULL);
+    twai_reconfigure_alerts(CAN_COMMON_ALERTS, NULL);
 
     // Alerts are armed above — any TX failure is caught by the state machine.
-    send_version_broadcast();
+    can_common_version_broadcast();
 
     typedef enum { TX_ACTIVE, TX_PROBING } tx_state_t;
     bool        bus_off        = false;
@@ -159,7 +117,7 @@ void can_handler_task(void *arg)
             ESP_LOGE(TAG, "TWAI bus-off, initiating recovery");
             bus_off = true;
             twai_initiate_recovery();
-            continue;
+            // No continue — fall through so RX_DATA in the same poll is still processed.
         }
         if (triggered & TWAI_ALERT_BUS_RECOVERED) {
             ESP_LOGI(TAG, "TWAI bus recovered, restarting");
@@ -167,7 +125,7 @@ void can_handler_task(void *arg)
             bus_off        = false;
             tx_fail_count  = 0;
             tx_state       = TX_PROBING;
-            send_version_broadcast();
+            // Version broadcast deferred until first TX_SUCCESS or RX_DATA confirms a peer.
         }
         if (triggered & TWAI_ALERT_ERR_PASS) {
             ESP_LOGW(TAG, "TWAI error passive (no peers ACKing?)");
@@ -185,6 +143,7 @@ void can_handler_task(void *arg)
             if (tx_state == TX_PROBING) {
                 tx_state      = TX_ACTIVE;
                 tx_fail_count = 0;
+                can_common_version_broadcast();
                 ESP_LOGI(TAG, "TWAI probe ACK'd, peer detected, resuming normal TX");
             }
             tx_fail_count = 0;
@@ -195,6 +154,7 @@ void can_handler_task(void *arg)
             if (tx_state == TX_PROBING) {
                 tx_state      = TX_ACTIVE;
                 tx_fail_count = 0;
+                can_common_version_broadcast();
                 ESP_LOGI(TAG, "TWAI peer detected via RX, resuming normal TX");
             }
             twai_message_t msg;
