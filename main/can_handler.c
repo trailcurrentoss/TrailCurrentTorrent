@@ -5,9 +5,12 @@
 #include "ota.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_app_desc.h"
+#include "esp_mac.h"
 #include "driver/twai.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <stdio.h>
 
 static const char *TAG = "can";
 
@@ -79,6 +82,26 @@ static void handle_sequence(const uint8_t *data, uint8_t len)
 // Public API
 // =============================================================================
 
+// Broadcast this node's firmware version on CAN 0x04 so Headwaters (or any
+// listener) can record/display the current firmware version.
+// Must only be called AFTER twai_reconfigure_alerts() so any TX failure is
+// captured by the state machine.
+static void send_version_broadcast(void)
+{
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    const esp_app_desc_t *app = esp_app_get_description();
+    unsigned maj = 0, min = 0, pat = 0;
+    sscanf(app->version, "%u.%u.%u", &maj, &min, &pat);
+    twai_message_t msg = {
+        .identifier       = 0x04,
+        .data_length_code = 6,
+        .data = { mac[3], mac[4], mac[5], (uint8_t)maj, (uint8_t)min, (uint8_t)pat },
+    };
+    twai_transmit(&msg, pdMS_TO_TICKS(50));
+    ESP_LOGI(TAG, "Version broadcast: %s (CAN 0x04)", app->version);
+}
+
 esp_err_t can_handler_init(void)
 {
     twai_general_config_t g_config = TWAI_GENERAL_CONFIG_DEFAULT(
@@ -115,6 +138,9 @@ void can_handler_task(void *arg)
                       TWAI_ALERT_TX_SUCCESS;
     twai_reconfigure_alerts(alerts, NULL);
 
+    // Alerts are armed above — any TX failure is caught by the state machine.
+    send_version_broadcast();
+
     typedef enum { TX_ACTIVE, TX_PROBING } tx_state_t;
     bool        bus_off        = false;
     tx_state_t  tx_state       = TX_ACTIVE;
@@ -141,6 +167,7 @@ void can_handler_task(void *arg)
             bus_off        = false;
             tx_fail_count  = 0;
             tx_state       = TX_PROBING;
+            send_version_broadcast();
         }
         if (triggered & TWAI_ALERT_ERR_PASS) {
             ESP_LOGW(TAG, "TWAI error passive (no peers ACKing?)");
